@@ -10,4 +10,4 @@ cude\Rust 看代码
 ```
 ## 链接：
 [zk_snark](./learn/kn_snark.md)
-[Rust](./learn/rust)
+[以太坊]('./learn/ethereum/a_ethereum_rm.md')
