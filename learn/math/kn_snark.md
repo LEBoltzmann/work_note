@@ -44,8 +44,12 @@ zk_SNARKs性能上来说更好，但需要trust setup
 
 我们选择使用模幂来加密r值。模幂有一些特性可以保证证明者在不知道r值的情况下可以计算p、h但是无法得知t，也无法通过$t(x)$生成$h(x)$和$p(x)$来作弊：
 $$
-c^x\bmod p \cdot c^y\bmod p = c^{x+y}\bmod p\\
-\frac{ c^x\bmod p  }{c^y\bmod p} = c^{x-y}\bmod p\\
+c^x\bmod p \cdot c^y\bmod p = c^{x+y}\bmod p
+$$
+$$
+\frac{ c^x\bmod p  }{c^y\bmod p} = c^{x-y}\bmod p
+$$
+$$
 c^x\bmod p \cdot c^y\bmod p \neq c^{xy}\bmod p
 $$
 
@@ -91,3 +95,4 @@ $$
 最后我们希望验证者无法获得证明者的知识，仍然可以使用偏移，让证明者通过随机偏移传递值给验证者：
 $$
 random\ \delta, pass\ ( g^{p(r)} )^{\delta}( g^{p(r)} )^{\delta}( g^{p(r)} )^{\delta}
+$$

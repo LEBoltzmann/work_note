@@ -5,4 +5,6 @@
 
 [以太坊堆栈](./ethereum_stack.md)
 
+[以太坊数据结构](./ethereum_data_structure.md)
+
 [比特币](./BTC.md)

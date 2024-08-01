@@ -4,3 +4,5 @@
 [zk_snark](./kn_snark.md)
 
 [拜占庭问题](./Byzantium.md)
+
+[数学工具](./math_operation.md)
