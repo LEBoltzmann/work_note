@@ -552,9 +552,9 @@ let world = &s[6..11];
 切片数据结构会保存String引用，切片的开始位置和长度。切片的标识符是`&str`。切片也是不可变引用所以同样不可以与可变引用同时出现。在编辑器的函数说明中可以看到函数变量类型。
 
 字符串字面量也是切片。
-### 什么是字符串
+#### 什么是字符串
 Rust使用unicode编码字符串，常说的字符串就是Rust标准库中的`String`和切片`&str`。
-### String 和&str的转换
+#### String 和&str的转换
 从,`String`到`&str`可以通过直接取引用，从`&str`到`String`可以通过
 ```Rust
 //&str to string
@@ -568,4 +568,207 @@ say_hello(&s[..]);
 say_hello(s.as_str());
 ```
 
+#### 字符串索引
+Rust不能通过索引来访问字符串：
+```Rust
+let s1 = String::from("hello");
+let h = s1[0];
+```
+##### 深入字符串
+字符串是使用UTF-8编码的，所以有些时候索引没有任何意义：
+```Rust
+let hello = String::from("hello");   //5字节
+let people = String::from("中国人") //实际上是9字节，取索引没有意义。
+```
+Rust为字符串提供了不同的表现形式，之所以不去用索引是因为变长的字符索引仍然需要遍历字符串取寻找合法字符，这不一定十分高效。（相比不变长度索引的O(1)）
+
+#### 字符串切片
+字符串切片无法保证索引在字符间隙上。所以要小心使用以免报错：
+```Rust
+let hello = "中国人";
+
+let s = &hello[0..2];
+```
+#### 操作字符串
+##### push
+可以通过push在字符串结尾增加字符，只要字符串可变：
+```Rust
+fn main() {
+    let mut s = String::from("Hello ");
+
+    s.push_str("rust");
+}
+```
+##### insert
+通过`insert`来插入字符：
+```Rust
+fn main() {
+    let mut s = String::from("Hello rust!");
+    s.insert(5, ',');
+    s.insert_str(6, " I like");
+    println!("插入字符串 insert_str() -> {}", s);
+}
+```
+第一个是从索引0开始计算的插入位置，第二个变量是插入字符。
+
+##### replace
+###### replace
+`replace`可以用在不可变/借用字符串上，第一个参数接收要改变的字符串，第二个参数接收要改变成什么，会改变所有搜索到的字符串：
+```Rust
+fn main() {
+    let string_replace = String::from("I like rust. Learning rust is my favorite!");
+    let new_string_replace = string_replace.replace("rust", "RUST");
+    dbg!(new_string_replace);
+}
+```
+方法返回一个字符串。
+###### replacen
+`replacen`接收第三个参数表述改变的数量：
+```Rust
+fn main(){
+    let string_replacen = String::from("I like rust. Learning rust is my favorite!");
+    let new_string_replacen = string_replacen.replacen("rust", "RUST", 1);
+}
+```
+
+###### replace_range
+`replace_range`接收两个参数，第一个是更改的范围，第二个是更改的字符串：
+```Rust
+fn main() {
+    let mut string_replace_range = String::from("I like rust!");
+    string_replace_range.replace_range(7..8, "R");
+}
+```
+这个方法只适用于可变的`String`
+
+##### delete
+###### pop
+`pop`可以删除最后一个字符：
+```Rust
+fn main() {
+    let mut string_pop = String::from("rust pop 中文!");
+    let p1 = string_pop.pop();
+    let p2 = string_pop.pop();
+    dbg!(p1);
+    dbg!(p2);
+    dbg!(string_pop);
+}
+```
+`pop`的返回值是一个`Option`类，如果没有返回则返回`None`。
+
+###### remove
+`remove`直接修改原字符串，并返回删除的字符。只接收一个参数代表删掉字符的位置。
+```Rust
+fn main() {
+    let mut string_remove = String::from("测试remove方法");
+    string_remove.remove(0);
+}
+```
+
+###### truncate
+删除指定位置到结尾的所有字符
+```Rust
+fn main() {
+    let mut string_truncate = String::from("测试truncate");
+    string_truncate.truncate(3);    //只留下第一个字符
+}
+```
+###### clear
+清空字符串
+
+##### concatenate
+可以通过`+ +=`来合并字符串。这个操作相当于调用`String`标准库中的`add()`，add接收两个参数而第二个参数是引用类型。所以要求`+`后面的字符串也是引用类型。使用`+`时有所有权转移问题：
+```Rust
+fn main() {
+    let s1 = String::from("hello,");
+    let s2 = String::from("world!");
+    let s3 = s1 + &s2;  //s1的所有权被转移了
+}
+```
+
+也可以使用`format!()`拼接字符串：
+```Rust
+fn main() {
+    let s1 = "hello";
+    let s2 = String::from("rust");
+    let s = format!("{} {}!", s1, s2);
+    println!("{}", s);
+}
+```
+#### 操作UTF8字符串
+可以使用`chars()`来遍历字符串：
+```Rust
+for c in "中国人".chars() {
+    println!("{}", c);
+}
+```
+如果想要字节输出可以使用`bytes()`
+
+### 元组
+元组是多种类型组合的复合类型：
+```Rust
+fn main() {
+    let tup: (i32, f64, u8) = (500, 6.4, 1);
+}
+```
+
+#### 可以使用模式匹配赋值
+```Rust
+fn main() {
+    let tup = (500, 6.4, 1);
+
+    let (x, y, z) = tup;
+
+    println!("The value of y is: {}", y);
+}
+```
+
+#### 用`.`访问元组
+```Rust
+fn main() {
+    let x: (i32, f64, u8) = (500, 6.4, 1);
+
+    let five_hundred = x.0;
+
+    let six_point_four = x.1;
+
+    let one = x.2;
+}
+```
+index 从0开始。
+
+### 结构体
+#### 结构体语法
+创建结构体以`struct Name`开头，结构体里面包含变量和类型：
+```Rust
+struct User {
+    active: bool,
+    username: String,
+    email: String,
+    sign_in_count: u64,
+}
+```
+初始化的时候需要初始化每一个变量，但是不需要按照顺序。访问结构体字段的时候使用`.`。
+
+创建结构体的时候可以使用缩略表示：
+```Rust
+fn build_user(email: String, username: String) -> User {
+    User {
+        email,
+        username,
+        active: true,
+        sign_in_count: 1,
+    }
+}
+```
+当函数变量名与结构体字段同名的时候。
+##### 结构体更新
+如果已经创建一个结构体并且想把它的一部分值赋给新的结构体可以使用缩略表示：
+```Rust
+  let user2 = User {
+        email: String::from("another@example.com"),
+        ..user1
+    };
+```
+这里User的username发生了所有权转移，user1中的username将不再能访问。
 
