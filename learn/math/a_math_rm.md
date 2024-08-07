@@ -3,6 +3,8 @@
 
 [zk_snark](./zk_snark.md)
 
+[zk_stark](./zk_stark.md)
+
 [拜占庭问题](./Byzantium.md)
 
 [数学工具](./math_operation.md)

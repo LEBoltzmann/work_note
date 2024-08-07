@@ -3,8 +3,6 @@
 
 [以太坊基础](./ethereum_basic.md)
 
-[以太坊堆栈](./ethereum_stack.md)
-
 [以太坊数据结构](./ethereum_data_structure.md)
 
 [Gesper共识](./Gesper.md)

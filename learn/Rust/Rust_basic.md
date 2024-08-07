@@ -771,4 +771,251 @@ fn build_user(email: String, username: String) -> User {
     };
 ```
 这里User的username发生了所有权转移，user1中的username将不再能访问。
+#### 元组结构体
+结构体需要有名字但字段可以没有名字。这种结构体叫元组结构体：
+```Rust
+    struct Color(i32, i32, i32);
+
+    let black = Color(0, 0, 0);
+```
+#### 单元结构体
+当定义一个结构体时不关心它的内容只关心它的行为那么可以声明单元结构体：
+```Rust
+struct AlwaysEqual;
+
+//没有字段，只关心它的行为
+impl action for AlwaysEqual{
+    return true;
+}
+```
+
+#### 结构体数据的所有权
+之前的`User`使用`String`这种有字符串所有权的数据类型而不是`&str`是有意为之的，因为在结构体中引用数据需要引入生命周期，来确保结构体中引用的生命周期要小于它引用的值。：
+```Rust
+struct User {
+    username: &str,
+    email: &str,
+    sign_in_count: u64,
+    active: bool,
+}
+
+fn main() {
+    let user1 = User {
+        email: "someone@example.com",
+        username: "someusername123",
+        active: true,
+        sign_in_count: 1,
+    };
+}
+```
+这时编译器会报错，因为引用需要生命周期标识符（在后面会有）
+
+#### 使用#[derive(Debug)]打印结构体
+结构体不能直接使用`{:?}`打印，会报错，因为没有实现Display也没有实现Debug。需要手动实现Debug或者使用derive实现Debug。
+```Rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    println!("rect1 is {:?}", rect1);
+}
+```
+当结构体很大的时候还可以使用`{:#?}`输出。Rust可以使用`dbg!`宏来输出到输出流，打印相应的文件名和行号，打印参数并把表达式的所有权返回。
+```Rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let scale = 2;
+    let rect1 = Rectangle {
+        width: dbg!(30 * scale),
+        height: 50,
+    };
+
+    dbg!(&rect1);
+}
+```
+### 枚举
+一个扑克牌花色的枚举类例子：
+```Rust
+enum PokerSuit {
+  Clubs,
+  Spades,
+  Diamonds,
+  Hearts,
+}
+```
+因为花色只会落在这四个值上所以花色很适合创建枚举类。枚举类可以指定类型：
+```Rust
+enum PokerCard {
+    Clubs(u8),
+    Spades(u8),
+    Diamonds(u8),
+    Hearts(u8),
+}
+
+fn main() {
+   let c1 = PokerCard::Spades(5);
+   let c2 = PokerCard::Diamonds(13);
+}
+```
+不同的成员可以使用不同的类型，也可以使用结构体，元组等类型：
+```Rust
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(i32, i32, i32),
+}
+
+fn main() {
+    let m1 = Message::Quit;
+    let m2 = Message::Move{x:1,y:1};
+    let m3 = Message::ChangeColor(255,255,0);
+}
+```
+#### Option枚举类
+Option枚举类包含None成员，可以表示没有的值：
+```Rust
+enum Option<T> {
+    Some(T),
+    None,
+}
+```
+使用`Some()`可以直接创建`Option`枚举，如果使用`None`要声明模板类型：
+```Rust
+let some_number = Some(5);
+let some_string = Some("a string");
+
+let absent_number: Option<i32> = None;
+```
+`Some(T)`不能直接和`T`做运算，需要使用`Option`中的`unwrap`函数来转换成`T`。`Option`中提供了多种转换函数：
+* `unwrap(self) -> T`：使用方式`x.unwrap()`，直接返回`T`。但是在`self`为`None`的时候会引起恐慌。建议使用模式匹配来单独处理`None`。
+* `unwrap_or(self, default : T) -> T`：使用`Some(T)`或者`default`值，使用方式：`x.unwrap_or(1)`。
+* `unwrap_or_else<F>(self, f: F)`：使用方式：`Some(4).unwrap_or_else(|| 2 * k)`返回值或者返回闭包表达式。
+* `unwrap_or_default(self) -> T`：使用方式：`x.unwrap_or_default()`返回值或者返回默认值。
+* `unwrap_unchecked(self) -> T`：返回值并且不检查，使用在`None`上是未定义行为。
+
+### 数组
+Rust中常用的数组有两种：`array`数组和`vector`动态数组，动态数组可变长但是有性能损耗。
+#### 创建数组
+数组要求固定大小，元素类型相同，线性排列。可以直接赋值也可以声明类型：
+```Rust
+let x = [1, 2, 3, 4, 5];
+let y : [i32;5] = [ 1, 2, 3, 4, 5 ];
+let z = [3;5]   //3重复5次
+```
+
+#### 访问数组
+直接通过下标访问：
+```Rust
+fn main() {
+    let a = [9, 8, 7, 6, 5];
+
+    let first = a[0]; // 获取a数组第一个元素
+    let second = a[1]; // 获取第二个元素
+}
+```
+当访问数组越界的时候Rust会报错。
+#### 数组切片
+和字符串切片类似：
+```Rust
+let a: [i32; 5] = [1, 2, 3, 4, 5];
+
+let slice: &[i32] = &a[1..3];
+```
+
+## 流程控制
+### 分支控制
+通过`if else`来控制代码执行块，可以通过执行块中的表达式赋值：
+```Rust
+fn main() {
+    let condition = true;
+    let number = if condition {
+        5
+    } else {
+        6
+    };
+
+    println!("The value of number is: {}", number);
+}
+```
+这里代码块最后一行没有分号，所以是表达式。将condition指向的结果赋值给number。如果只使用if的话不能返回表达式只能返回`()`。
+
+可以通过`else if`处理多重条件。
+```Ruet
+fn main() {
+    let n = 6;
+
+    if n % 4 == 0 {
+        println!("number is divisible by 4");
+    } else if n % 3 == 0 {
+        println!("number is divisible by 3");
+    } else if n % 2 == 0 {
+        println!("number is divisible by 2");
+    } else {
+        println!("number is not divisible by 4, 3, or 2");
+    }
+}
+```
+### 循环控制
+#### for循环
+可以使用for循环遍历slide或者集合：
+```Rust
+for i in 1..=5 {  }
+
+for a in array_a {  }
+
+//使用引用/可变引用
+for a in &array_a {  }
+
+for a in &mut array_a {  }
+```
+如果没有copy属性的集合会被移动所有权，所以还要使用的话就要使用引用。可以在for中使用迭代器获得元素索引：
+```Rust
+for (i, a) in array_a.iter().enumerator()
+```
+可以通过在`for _ in 0..10`来创建一个固定次数循环但是不创建变量。
+#### continue/break
+Rust的`continue`和`break`与c++一样，`continue`跳过剩余代码段继续循环，`break`直接退出循环。
+
+#### while
+`while`只需要一个条件判断是否继续循环。
+```Rust
+while n <= 5  {
+        println!("{}!", n);
+
+        n = n + 1;
+    }
+```
+相对于`for`循环，`while`循环遍历数组需要检查边界，容易产生错误。所以在遍历数组的时候选择`for`会更简洁高效。
+
+#### loop
+`loop`是无条件循环，可以使用`if+break`控制退出条件。使用break也可以返回值：
+```Rust
+fn main() {
+    let mut counter = 0;
+
+    let result = loop {
+        counter += 1;
+
+        if counter == 10 {
+            break counter * 2;
+        }
+    };
+
+    println!("The result is {}", result);
+}
+```
 

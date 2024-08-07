@@ -56,6 +56,7 @@ merkle tree是通过哈希指针连接的类似二叉树的结构。每一个节
 * 版本信息
 * 前一个区块头哈希
 * merkle root hash
+* time，块的时间戳
 * target，POW的目标
 * nonce，改变随机值来满足要求
 
