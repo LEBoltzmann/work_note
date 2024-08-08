@@ -3,6 +3,9 @@
 
 [零知识证明算法 zk-SNARK调研 (上)](https://rujia.uk/resource/ZK-SNARK.pdf)
 
+
+[密码学系列课程8：zkSnark-Groth16证明系统-p1](https://www.bilibili.com/video/BV1Jh4y177QS/?spm_id_from=333.788&vd_source=e494a00b2ff9e62e2e79d78af8084068)
+
 [TOC]
 
 # 什么是零知识
@@ -230,6 +233,8 @@ $$
 * $C_6(x)\in g_{2o}$，所以$C_6(r_2) = 1$
 
 这样就得出了一个规范的多项式生成方法。
+###### 一些细节
+在构造电路时大部分计算用在计算多项式乘法。这部分用到了[ 快速傅立叶和快速逆傅立叶变换 ](./math_operation.md)。在判断算法效率的时候除了考虑生成key的大小，证明的复杂度以外判断生成key的复杂度主要在于执行FFT的次数。
 
 #### PGHR13算法
 
@@ -248,7 +253,24 @@ $$
 ###### 验证者
 验证者首先通过证明钥给出的偏移来证明承诺。接着证明系数相等，最后证明电路的成立。这几个双线性配对的正确性可以写下来验证，并不复杂。
 
+#### Groth16
+Groth16对PGHR13做了改进，有更小的证明验证key和验证步骤。是比较主流的snark实现。[参考](https://mp.weixin.qq.com/s?__biz=MzU5MzMxNTk2Nw==&mid=2247486055&idx=1&sn=a0bd7d530ceeb74a3cbb5fa10466bd9d&chksm=fe131b77c964926173afd7459f4a7d6512ebe0cfb58e9a90b731ac8d6d8df9cc139260d95a72&scene=21#wechat_redirect)
+
+###### 设置过程
+<img src="./imgs/zk_snark_groth1.png" alt="" width="" height="" />
+
+设置时下标1、2表示生成自不同的有限群。$\alpha$、$\beta$保证证明时使用同一个参数a生成ABC。
+
+###### 证明过程
+<img src="./imgs/zk_snark_groth2.png" alt="" width="" height="" />
+
+r，s增加随机偏移来实现零知识。h(x)使用$\sigma_1$中最后一项计算。
+
+###### 验证过程
+<img src="./imgs/zk_snark_groth3.png" alt="" width="" height="" />
+
+Groth算法延续PGHR13的协议，但使用三个证明元素并只进行四次双线性配对，节省了验证消耗。它在证明key中直接给出UVW矩阵来生成证明所以证明很快，但是只能计算单一电路，表达能力很差。后面与PLONK对比能发现PLONK表达能力很好但是生成证明较慢。
 # 总结
-zk-snark是一个功能强大并简洁的非交互零知识证明，证明短小简单，但是需要trust setup。后面有zk-stark不需要setup并且是抗量子的。不管怎样snark和它的应用仍然是零知识的前沿课题。
+zk-snark是一个功能强大并简洁的非交互零知识证明，证明短小简单，但是需要trust setup。后面有zk-stark不需要setup并且是抗量子的算法。不管怎样snark和它的应用仍然是零知识的前沿。
 
 

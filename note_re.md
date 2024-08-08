@@ -7,4 +7,4 @@
 
 [Rust学习](./learn/Rust/a_Rust_rm.md)目前到Rust基础
 
-[计算机](./learn/comp/a_comp_rm.md)目前有计算机系统
+[计算机](./learn/comp/a_comp_rm.md)目前有计算机操作系统
