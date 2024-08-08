@@ -269,7 +269,13 @@ r，s增加随机偏移来实现零知识。h(x)使用$\sigma_1$中最后一项�
 ###### 验证过程
 <img src="./imgs/zk_snark_groth3.png" alt="" width="" height="" />
 
+*验证使用$\gamma$和$\delta$来让后两项的值独立于$\alpha\times\beta$，不是很理解*
+
 Groth算法延续PGHR13的协议，但使用三个证明元素并只进行四次双线性配对，节省了验证消耗。它在证明key中直接给出UVW矩阵来生成证明所以证明很快，但是只能计算单一电路，表达能力很差。后面与PLONK对比能发现PLONK表达能力很好但是生成证明较慢。
+
+#### Plonk
+
+
 # 总结
 zk-snark是一个功能强大并简洁的非交互零知识证明，证明短小简单，但是需要trust setup。后面有zk-stark不需要setup并且是抗量子的算法。不管怎样snark和它的应用仍然是零知识的前沿。
 
