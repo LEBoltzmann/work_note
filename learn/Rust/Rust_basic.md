@@ -1018,4 +1018,185 @@ fn main() {
     println!("The result is {}", result);
 }
 ```
+## 分支匹配
+### match和if let
+#### match
+`match`的通用形式：
+```Rust
+match target {
+    模式1 => 表达式1,
+    模式2 => {
+        语句1;
+        语句2;
+        表达式2
+    },
+    _ => 表达式3
+}
+```
+最后的`_`表示其他值。`match`本身是一个表达式所以可以用来赋值。
+
+##### 模式绑定
+我们有时希望获得模式所对应的变量。可以使用在模式匹配后面用括号捕获变量：
+```Rust
+match coin {
+        Coin::Penny => 1,
+        Coin::Nickel => 5,
+        Coin::Dime => 10,
+        Coin::Quarter(state) => 13,
+}
+
+```
+当需要匹配的枚举是结构体的时候需要使用花括号。
+#### if let
+当我们只关心一种模式的时候可以使用`if let`：
+```Rust
+if let Some(3) = v {
+    println!("three");
+}
+```
+#### matches!
+使用`matches!`来直接匹配一个变量和模式：
+```Rust
+let foo = 'f';
+assert!(matches!(foo, 'A'..='Z' | 'a'..='z'));
+
+let bar = Some(4);
+assert!(matches!(bar, Some(x) if x > 2));
+```
+#### 解构Option
+通过解构`Option`来控制它：
+```Rust
+fn plus_one(x: Option<i32>) -> Option<i32> {
+    match x {
+        None => None,
+        Some(i) => Some(i + 1),
+    }
+}
+```
+### 模式适用场景
+模式匹配可以实现很多功能，包括：
+* 字面值
+* 解构的复合变量
+* 变量
+* 通配符
+* 占位符
+
+除了上节的`match, if let`还包括：
+* for .. in .. 
+* let
+* 函数参数
+
+但其他模式匹配方式都是不可反驳的，必须包含全部可能。除了`if let`。另外就是允许多个模式匹配的`match`虽然不可反驳但是允许使用`_`，也算是部分匹配。
+
+### 全模式列表
+* 匹配字面值
+```Rust
+match x {
+    1 => println!("one"),
+    2 => println!("two"),
+    ...
+```
+* 匹配命名变量
+```Rust
+match x {
+        Some(50) => println!("Got 50"),
+        Some(y) => println!("Matched, y = {:?}", y),
+        ...
+```
+* 单分支多模式：使用`|`表示多个模式
+```Rust
+match x {
+    1 | 2 => println!("one or two"),
+    3 => println!("three"),
+    ...
+```
+* 使用`..=`匹配，这里不能使用其他生成`Range`的方式进行匹配
+```Rust
+match x {
+    1..=5 => println!("one through five"),
+    ...
+```
+* 匹配解构：通过解构进行匹配
+```Rust
+fn main() {
+    let p = Point { x: 0, y: 7 };
+
+    match p {
+        Point { x, y: 0 } => println!("On the x axis at {}", x),
+        Point { x: 0, y } => println!("On the y axis at {}", y),
+        Point { x, y } => println!("On neither axis: ({}, {})", x, y),
+    }
+}
+```
+一个通过解构`struct`匹配的例子，可以在解构的时候省缺目标变量，并声明一个与Struct中名字一样的变量。
+* 匹配枚举
+* 解构嵌套的结构体和枚举
+```Rust
+enum Color {
+   Rgb(i32, i32, i32),
+   Hsv(i32, i32, i32),
+}
+
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(Color),
+}
+
+fn main() {
+    let msg = Message::ChangeColor(Color::Hsv(0, 160, 255));
+
+    match msg {
+        Message::ChangeColor(Color::Rgb(r, g, b)) => {
+            println!(
+                "Change the color to red {}, green {}, and blue {}",
+                r,
+                g,
+                b
+            )
+            ...
+```
+可以嵌套地解构结构体等。
+* 解构结构体和元组
+```Rust
+let ((feet, inches), Point {x, y}) = ((3, 10), Point { x: 3, y: -10 });
+```
+* 解构数组
+```Rust
+let arr: [u16; 2] = [114, 514];
+let [x, y] = arr;
+let [x, ..] = arr;
+```
+* 使用下划线忽略值：对于不关心的值的地方用`_`代替，Rust根本不会进行赋值。下划线可以在嵌套的复合变量中使用。
+* 使用`..`忽略其余值。
+* 匹配守卫：在`match`中可以使用`if`来提供比匹配更多的功能
+```Rust
+match x {
+    //匹配守卫会作用在所有模式上
+    4 | 5 | 6 if y => println!("yes"),
+    ...
+```
+
+* @绑定：可以在检查范围的同时给变量赋值
+```Rust
+match msg {
+    Message::Hello { id: id_variable @ 3..=7 } => {
+        println!("Found an id in range: {}", id_variable)
+```
+这时可以在检查范围的同时赋值使用变量。现在有一些新特性：
+```Rust
+let p @ Point {x: px, y: py } = Point {x: 10, y: 23};   //先赋值后解构
+
+match 1 {
+        num @ (1 | 2) => {
+            println!("{}", num);
+        }
+        ...
+        //在多个模式的时候也能绑定，不能去掉小括号。
+```
+
+## 方法
+Rust方法定义在`strust`外面，使用`impl`关键字
+
 
