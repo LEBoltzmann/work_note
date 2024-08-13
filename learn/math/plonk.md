@@ -112,7 +112,7 @@ $$
 从加密的角度讲可以把公钥加密对应到承诺(PK加密)，把数字签名对应到zk的秘密知识(sk)
 
 # KZG多项式承诺
-**系统初始化**；对于椭圆曲线双线性群$\mathcal G = (e, \mathbb G, \mathbb G_T), $有毒肥料$\alpha \in_R \mathbb Z_p*$。输出为：
+**系统初始化**；对于椭圆曲线双线性群$\mathcal G = (e, \mathbb G, \mathbb G_T),$有毒废料$\alpha \in_R \mathbb Z_p*$。输出为：
 $$
 PK = (\mathcal G, G, \alpha G \ldots, \alpha^t G)
 $$
@@ -209,4 +209,184 @@ $$
 
 **多项式承诺**：对每个多项式求，与上面一样。
 
-**打开随机点**
+**打开随机点**：计算随机数$\gamma$，计算所有打开点的商多项式：
+$$
+h(X) = \sum_{i\in [t]} \gamma^{i-1} \frac{f_i(X) - r_i(X)}{Z_{S_i}(X)}
+$$
+并只发送一个商多项式承诺：$W = h(\alpha)\times G_1$
+**验证随机点**：验证成立：
+$$
+\Pi_{i\in[t]} e(\gamma^{i-1}\times(C_i - r_i(\alpha)\times G_1), Z_{T/S_i}(\alpha) \times G_2) = e(W, Z_T(\alpha)\times G_2)
+$$
+这里把本来在右边的$e(W,Z_{S_i}(\alpha)\times G_2)$挪到左边共同计算节省了一些双线性计算。
+
+## t个多项式打开s个随机点2.0
+为了进一步简化我们有第三个同等命题：
+$$
+Z_S(X)|g(X) \leftrightarrow Z_T(X) | Z_{T/S}(X)\times g(X)
+$$
+**系统初始化**：双线性群$\mathcal G = (e, \mathbb G_1, \mathbb G_2, \mathbb G_T)$，随机数$\alpha \in_R \mathbb Z_p*$，d+2元组 $<G_1, \alpha G_1, \ldots, \alpha^{d-1}G_1; G_2, \alpha G_2> \in (\mathbb G_1^d, \mathbb G_2^2)$，令输出为
+$$
+<\mathcal G, G_1, \alpha G_1, \ldots, \alpha^{d-1}G_1; G_2, \alpha G_2> 
+$$
+**承诺**：同上，对于每个多项式计算
+
+**打开随机点**：使用上面的同等计算h：
+$$
+h(X) = \frac{\sum_{i\in [t]}\gamma^{i-1}Z_{T/S_i}(X)\times (f_1(X) - r_1(X))}{Z_T(X)}
+$$
+发送一个商多项式承诺
+$$
+W_1 = h(\alpha)G_1
+$$
+*这部分其实一样*，接着通过上面多项式计算随机数z：
+
+**区别点：计算辅助多项式：**
+$$
+f_z(X) = \sum_{i\in [k]}\gamma^{i-1} \times Z_{T/S_i}(z)\times (f_i(X)-r_i(z))
+$$
+$$
+L(X) = f_z(X) - Z_T(z)\times h(X)
+$$
+由于$L(z) = f_z(z) - Z_T(z)\times h(z)$，所以$(X-z)|L(X)$
+
+**区别点：计算发送辅助多项式的商多项式承诺：**
+
+$$
+W_2 = \frac{L(\alpha)}{\alpha - z}\times G_1
+$$
+发送$W_1$ 和 $W_2$。相比上面的算法增加了一个证明。验证：
+
+$$
+e(\sum_{i\in[t]}\gamma^{i-1}\times Z_{T/S_i}\times (C_i - r_i(z)\times G_1) - Z_T(z) \times W_1, G_2) = e(W_2,(\alpha - z)\times G_2)
+$$
+
+这部分优化其实是因为上面的双线性配对两边都有i，所以无法把双线性配对外的累加放到双线性配对里。而通过添加一个证明让e内部两边都有i变成等式两边的e内部都有i，让累加可以放入括号。于是双线性配对的复杂度变成椭圆曲线累加的复杂度，这样就大大减少了计算量。
+
+## t-s3.0
+把上节中验证公式的$r_i(z)$项提出，因为整个项变量只有z所以可以直接先求和再求椭圆曲线，减少计算量。
+## t-s4.0
+把$W_2 = \frac{L(\alpha)}{\alpha - z}G_1$变为$W_2 = \frac{L(\alpha)}{Z_{T/S_1}(z)( \alpha - z )}G_1$。在k=1的时候可以再简化为：
+$$
+F = \frac{-Z_T(z)}{Z_{T/S_1}(z)}W_1 + C - r_1(z)G_1
+$$
+这样只有三个倍点运算。问题在于Plonk有多个多项式，下面介绍怎么把多个多项式单点打开等价转化为1个多项式。
+# Fflonk
+核心思想为把n个简单的多项式转换为一个等价表达的多项式g。
+## 定义
+t个多项式的组合$combine_t(\bar f): \mathbb F[X]^t \rightarrow \mathbb F[X]$：
+$$
+g(X) = \sum_{i < t}f_i(X^t)X^i
+$$
+同样通过分别取对应位置的系数可以分解多项式。类似FFT的思想。这样转换之后通过一个多项式就可以使用t-s4.0的算法，将计算量减少。
+
+***这里原文给的不是很清楚，待补充***
+
+# Plonk证明系统
+## 电路化：门和线
+Groth通过电路约束来表达电路，但是Plonk门因为比较灵活没法表达庞大的电路（需要很多约束）。下面是Plonk门的具体构造
+### 门约束
+创建一个通用方程：
+$$
+Q_{Li}\times a_i + Q_{Ri}\times b_i + Q_{Oi}\times c_i + Q_{Mi} \times a_i \times b_i + Q_{Ci} = 0
+$$
+通过选取不同的参数可以模拟不同门。通用方程可以表达加法门、乘法门、常量门、加法门与乘法门的耦合。这种一门一个多项式会造成过多的离散值，所以在有多个门的时候可以通过多项式进行封装。对于每个门的系数可以得出多项式点值，比如对加法门可以获得关于$Q_L$的点值，通过FFT得到系数值，就得到了每个门系数和三个输入输出值的多项式表达。可以得到一个通用表达式：
+$$
+Q_L(x)\times a(x) + Q_R(x)\times b(x) + Q_o(x)\times c(x) + Q_M(x)\times a(x) \times b(x) + Q_c(x) = Z(x)\times H(x)
+$$
+这个通用表达式在几个固定值（与Groth16类似的思路）会取零，所以可以被目标多项式整除。这样就构造出可以放入前面讨论的多项式证明的多项式了。
+
+### 线约束
+在庞大电路中，总有一些输入输出值是相同的，即线约束。Plonk引入坐标对累加器来表示这种约束。
+
+给定多项式$P(X)$的值表达，横坐标$x=(0, 1, 2, 3)$，纵坐标$y = (-1, 1, 0, 1)$。可以得到基于x的X系数表达：
+$$
+X(x) = x
+$$
+以及通过FFT获得Y系数表达：
+$$
+Y(x) = x^3 - 5x^2 + 7x -2
+$$
+**坐标累加器P(x)的递归表达：**
+
+$$
+P(n+1) = P(n)\times (u + X(n) + v \times Y(n))\quad P(0) = 1
+$$
+其中uv是随机常量。可以得到通项表达：
+$$
+P(n) = \Pi_{i = 0}^{n-1} (u + X(i) + v\times Y(i))
+$$
+由于纵坐标2，4大小相同，根据乘法交换律可以交换x为$(0, 3, 2, 1)$。有两个关键结论：
+* 改变横坐标索引，如果纵坐标相等，则坐标累加器不变。
+* 改变横坐标索引，如果坐标累加器相等，则两个纵坐标相等，确保线约束成立。
+
+所以这时只需要广>播两个坐标累加器就可以证明两个index上y相等。
+
+### 约束汇总
+结合前面的门约束：
+$$
+Q_L(x)\times a(x) + Q_R(x)\times b(x) + Q_o(x)\times c(x) + Q_M(x)\times a(x) \times b(x) + Q_c(x) = Z(x)\times H(x)
+$$
+加上线约束：
+$$
+P_a(\omega x) - P_a(x)(u + x + va(x)) = Z(x)H_1(x)
+$$
+$$
+P_{a'}(\omega x) - P_{a'}(x)(u + \sigma_a(x) + va(x)) = Z(x)H_2(x)
+$$
+$$
+P_b(\omega x) - P_b(x)(u + g\times x + vb(x)) = Z(x)H_3(x)
+$$
+$$
+P_{b'}(\omega x) - P_{b'}(x)(u + \sigma_b(x) + vb(x)) = Z(x)H_3(x)
+$$
+$$
+P_c(\omega x) - P_c(x)(u + g^2\times x + vc(x)) = Z(x)H_5(x)
+$$
+$$
+P_{c'}(\omega x) - P_{c'}(x)(u + \sigma_c(x) + vc(x)) = Z(x)H_6(x)
+$$
+结合两者可以规定所有约束
+## Plonk证明系统
+这段比较复杂，可以见[ 参考文件 ](https://drive.google.com/file/d/1-wcIHORaRMkcZX32YBey2boUF5d5Aw1t/edit)
+
+* 为了确保零知识，红色部分是随机项
+* 商多项式规模比较大所以分成三个承诺
+
+# 聚合证明系统
+对于多组算法设计一个电路并只通过验证一个电路校验所有电路。可以把所有电路的最后双线性映射前的值通过随机数组合起来（类似多个多项式展开聚合），接着放入双线性映射校验。所以这个聚合证明电路就是一个双线性映射，通过验证这个双线性映射电路就可以验证所有证明。
+
+这样的校验也可以用来校验for循环电路，由于for循环每次运行复杂度不同，可以把每次for循环的验证电路和vk输入到上面的验证电路中，由于验证电路是固定的所以可以直接把验证电路的vk存到以太坊一层中实现验证。
+
+# UltraPlonk
+[参考](https://drive.google.com/file/d/1PmAnetV2yVuO94Z68Wnc9QKHw07fBaTo/view?usp=sharing)
+
+UltraPlonk对电路进行了优化，增加了查找表和定制门。承诺部分并没有区别。
+
+## 查找表
+**问题**：对于以太坊中的哈希运算中大量布尔运算和循环运算需要大量Plonk门实现。对于这些应用比较多的运算可以把输入输出表格公开给出。使用累加器证明保密数据在表格中，就能证明输入输出是正确的。
+
+### 多项式和集合划分
+对于整数n，d，向量 $f\in \mathbb F^n$，$t\in \mathbb F^d$。使用$f \subset t$代表f在t中。构造一个辅助向量$s\in \mathbb F^{n+d}$，重排f与t按照t的顺序把相同的f插入t。生成随机数$\beta\gamma$构造多项式：
+$$
+F(\beta,\gamma) = (1 + \beta)^n\times \Pi(\gamma + f_i)\times \Pi(\gamma(1+\beta) + t_i + \beta \times t_{i+1})
+$$
+$$
+G(\beta,\gamma) = \Pi (\gamma(1+\beta) + s_i + \beta\times s_{i+1})
+$$
+可见s构造的式子在$s_i = s_{i+1}$的时候退化成f构造的部分。于是两个式子相等当且仅当$f\subset t$
+
+## Plookup
+对于预计算的table多项式$t\in \mathbb F_{<n+1}[X]$和证明方的保密多项式$f\in \mathbb F_{<n}[X]$，witness由多项式表达。
+* 零$s\in\mathbb F^{2n+1}$为多项式，使用两个多项式$h_1,h_2\in \mathbb F_{<n+1}[X]$来表达s（因为可能多项式长度会过大）
+$$
+h_1(g^i) = s_i, \quad i \in [n+1]
+$$
+$$
+h_2(g^i) = s_{i+n}, \quad i \in [n+1]
+$$
+* 证明方生成多项式承诺，使用哈希生成随机数$\beta\gamma$
+* 计算多项式$Z\in\mathbb F_{<n+1}[X]$：
+$$
+Z(g^i) = \frac{(1+\beta)^{i-1} \times \Pi(\gamma + f_i) \times \Pi(\gamma(1+\beta) + t_j + \beta \times t_{j+1})}{\Pi(\gamma(1+\beta) + s_j + \beta\times s_{j+1})(\gamma(1+\beta) + s_{})}
+
