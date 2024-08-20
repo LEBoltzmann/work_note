@@ -1196,7 +1196,142 @@ match 1 {
         //在多个模式的时候也能绑定，不能去掉小括号。
 ```
 
+Tips：使用`@`与其他赋值一样也会转移所有权，如果只想在`match`作用域内使用应该`ref`一下。
+
 ## 方法
-Rust方法定义在`strust`外面，使用`impl`关键字
+Rust方法定义在`strust`外面，使用`impl`关键字：
+```Rust
+pub struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle {
+    pub fn new(width: u32, height: u32) -> Self {
+        Rectangle { width, height }
+    }
+    pub fn width(&self) -> u32 {
+        return self.width;
+    }
+}
+
+```
+其中`pub`关键字声明的结构体默认字面量为私有，可以通过公有方法访问。在方法中需要传入`self`，与其他传入参数一样有所有权概念。`self`会转移所有权，`&self`借用，`&mut self`可变借用。
+
+方法中没有传入`self`的是关联函数，用来构造结构体。关联函数未必只能用`new`。枚举类也可以创建方法。
+
+## 泛型与特征
+### 泛型 Generics
+使用`<T>`来声明带有泛型的代码。一些例子：
+```Rust
+//声明一个加法泛型函数，因为不是所有T都有加法操作所以需要声明特性。
+fn add<T: std::ops::Add<Output = T>>(a:T, b:T) -> T {
+    a + b
+}
+
+//方法中的泛型，在impl后也要加<T>，不加的话是对具体类型的泛型结构体声明方法。
+impl<T> Point<T> {
+    fn x(&self) -> &T {
+        &self.x
+    }
+}
+impl Point<f32> {
+    fn distance_from_origin(&self) -> f32 {
+        (self.x.powi(2) + self.y.powi(2)).sqrt()
+    }
+}
+```
+函数，结构体，方法，枚举都可以声明为泛型。另外还有const泛型，在声明泛型的时候加`const`关键字：
+```Rust
+fn display_array<T: std::fmt::Debug, const N: usize>(arr: [T; N]) {
+    println!("{:?}", arr);
+}
+```
+只接受常数变量或常数字面量传入。
+
+### 特征Trait
+特征定义了一系列可以共享的行为，实现了这一行为才可以进行同一种操作（就像上面的`std::ops::Add`）
+
+#### 特征定义
+定义一个特征：
+```Rust
+pub trait Summary {
+    fn summarize(&self) -> String;
+}
+```
+特征只定义函数签名不定义行为，所以用`;`结尾。
+
+#### 特征实现
+实现一个特征：
+```Rust
+pub trait Summary {
+    fn summarize(&self) -> String;
+}
+pub struct Post {
+    pub title: String, // 标题
+    pub author: String, // 作者
+    pub content: String, // 内容
+}
+
+impl Summary for Post {
+    fn summarize(&self) -> String {
+        format!("文章{}, 作者是{}", self.title, self.author)
+    }
+}
+```
+##### 特征定义与实现的规则（孤儿原则）
+如果想要为`A`实现`T`特征那么必须两者其中之一在当前作用域内，为了避免编写时破坏不相关的代码。
+##### 默认实现
+可以在特征定义中编写默认实现，在实现特性时没有实现方法的时候就会使用默认实现。默认实现还可以调用其他在特征中的方法，即使它还没有实现：
+```Rust
+pub trait Summary {
+    fn summarize_author(&self) -> String;
+
+    fn summarize(&self) -> String {
+        format!("(Read more from {}...)", self.summarize_author())
+    }
+}
+```
+
+#### 使用特征作为函数参数
+可以把特征作为函数传入：
+```Rust
+pub fn notify(item: &impl Summary) {
+    println!("Breaking news! {}", item.summarize());
+}
+```
+这样所有实现了`Summary`的类型都可以传入函数。
+#### 特征约束
+上面的用法是一个语法糖，完整的使用：
+```Rust
+pub fn notify<T: Summary>(item: &T) {
+    println!("Breaking news! {}", item.summarize());
+}
+```
+与上面约束加法特征一样。
+##### 多重约束
+使用`+`表明有两个约束：
+```Rust
+pub fn notify<T: Summary + Display>(item: &T) {}
+```
+同时可以用`where`约束来让签名可读性更高：
+```Rust
+fn some_function<T, U>(t: &T, u: &U) -> i32
+    where T: Display + Clone,
+          U: Clone + Debug
+{}
+```
+也可以有条件地实现方法和特征：
+```Rust
+impl<T: Display + PartialOrd> Pair<T> {}
+impl<T: Display> ToString for T {}
+```
+
+#### 返回特征
+可以指定函数返回类型的特征：
+```Rust
+fn returns_summarizable() -> impl Summary {}
+```
+这样告诉调用者返回了一个有`Summary`特征的结构体。这种用法当返回值的类型特别复杂的时候很好用。但是不能用分支控制返回两种类型，会报错。
 
 
