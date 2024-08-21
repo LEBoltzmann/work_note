@@ -1,5 +1,5 @@
 # Cuda教程
-基于[参考教程](https://www.bilibili.com/video/BV1sM4y1x7of/?spm_id_from=333.337.search-card.all.click&vd_source=e494a00b2ff9e62e2e79d78af8084068)进行cuda学习
+基于[参考教程](https://www.bilibili.com/video/BV1sM4y1x7of/?spm_id_from=333.337.search-card.all.click&vd_source=e494a00b2ff9e62e2e79d78af8084068)以及[博客](https://face2ai.com/program-blog/#GPU)进行cuda学习
 
 [TOC]
 
@@ -227,4 +227,144 @@ SM有两个线程束独傲赌气和两个指令调度单元，当一个线程块
 Kepler架构有强化的SM，动态并行，Hyper-Q等技术突破。Kepler可以内核启动内核，这样可以用GPU实现简单递归。Hyper-Q技术是CPU与GPU的同步硬件连接，可以实现多个队列。
 
 ## 理解线程束执行
+在硬件层面是不会以多维的形式执行命令的，还是以一维的方式处理。所以三维的线程块和线程是一个逻辑概念，方便编程。运行时一个块被安排在一个SM上，其中的线程按照xyz的顺序排列，按32个线程组成线程束执行单指令多线程。每个线程执行同一个命令，但是有私有的储存。
 
+### 线程束分化
+CPU使用流水线作业，执行完一个分支语句之后再向下执行，并且有分支预测机制，所以比较擅长复杂的逻辑运算。但是对于GPU的并行化不能说同一个指令周期执行不同的指令。比如对分支语句：
+```c
+if(con){
+    statement1
+}else{
+    statement2
+}
+```
+首先对所有线程执行`statement1`，跳过那些不符合分支的线程，之后再执行`statement2`，同样跳过不进入分支的线程。这样的线程束分化会造成严重的性能下降。
+
+一个优化方案就是把同样分支的线程安排在同一个线程束中，这样线程利用率就很高。比如：
+```c
+__global__ void mathKernel1(float *c)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    float a = 0.0;
+    float b = 0.0;
+    if(tid % 2 == 0)
+    {
+        a = 100.0f;
+    }
+    else
+    {
+        b = 200.0f;
+    }
+
+    c[tid] = a + b;
+}
+```
+这样组织线程每个线程束里都有一半一半的分支。但是如果把相同分支的线程束组织在一起，比如有64个线程：
+
+```c
+__global__ void mathKernel1(float *c)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    float a = 0.0;
+    float b = 0.0;
+    if(tid / warpSize == 0)
+    {
+        a = 100.0f;
+    }
+    else
+    {
+        b = 200.0f;
+    }
+
+    c[tid] = a + b;
+}
+```
+这样线程束执行就很高效了。实际编译中编译器也会对一些分支代码进行优化，看后面这个教程会不会讲。
+
+### 计算资源
+在SM上每个线程有寄存器和SM的共享内存，这些资源的分配影响到了SM上活跃线程的数量。太少可能会造成资源浪费，太多可能会导致储存溢出到全局储存上更浪费时间。
+
+一个线程块被分配了寄存器和共享内存就处于活跃状态，包含的线程束成为活跃线程束，分三类；
+* 选定的线程束
+* 阻塞的线程束
+* 复合条件的线程束
+
+当Sm要执行某个线程束的时候，执行的线程束就叫选定的线程束。准备要执行的线程束叫符合条件的线程束。如果不符合条件就叫阻塞的线程束。要满足以下条件：
+* 32个cuda核心可以用于执行
+* 执行所需要的资源全部就位
+
+不同的架构同时执行的线程束和活跃的线程束数量是不同的。由于已经被分配了寄存器所以线程束的上下文切换消耗很小。
+
+### 隐藏延迟
+对于每个线程有算数延迟（10-20时钟周期）和内存延迟（400-800时钟周期）。在延迟期间需要执行其他活跃线程来保证运算单元和内存带宽被占用满。这样就可以尽可能降低隐藏延迟。如何在延迟期间组织线程束一般是编译器的工作，写代码时主要要合理地选择线程束数量
+
+### 同步
+可以通过`__syncthread()`来同步一个块中的线程，所有线程都执行到这个语句的时候才会继续执行。
+
+## 避免分支分化
+### 并行规约问题
+当计算满足结合性和交换性的时候可以用并行归约的方法处理。利用递归的思想把向量数据分块，分别执行加法计算之后再加到一起，达到用并行计算本来需要靠变量锁等方式一个个计算的问题。在CPU中可以使用分支循环实现，但在GPU中可以优化：
+
+## 避免分支分化
+### 并行规约问题
+当计算满足结合性和交换性的时候可以用并行归约的方法处理。利用递归的思想把向量数据分块，分别执行加法计算之后再加到一起，达到用并行计算本来需要靠变量锁等方式一个个计算的问题。在CPU中可以使用分支循环实现，但在GPU中可以优化。
+
+```Rust
+__global__ void reduceNeighbored(int * g_idata,int * g_odata,unsigned int n)
+{
+	//set thread ID
+	unsigned int tid = threadIdx.x;
+	//boundary check
+	if (tid >= n) return;
+	//convert global data pointer to the
+	int *idata = g_idata + blockIdx.x*blockDim.x;
+	//in-place reduction in global memory
+	for (int stride = 1; stride < blockDim.x; stride *= 2)
+	{
+		if ((tid % (2 * stride)) == 0)
+		{
+			idata[tid] += idata[tid + stride];
+		}
+		//synchronize within block
+		__syncthreads();
+	}
+	//write result for this block to global mem
+	if (tid == 0)
+		g_odata[blockIdx.x] = idata[0];
+
+}
+```
+这是一个没有经过优化的代码，通过在每一个块内用并行规约来计算加法。可以见示意图：
+
+<img src="./img/cuda10.png" alt="" width="" height="" />
+
+可见每次执行中线程束都有大量线程空置。可以通过之前介绍的思想把一直运行的线程控制在一个线程束上来保证高占有率：
+
+```c
+__global__ void reduceNeighboredLess(int * g_idata,int *g_odata,unsigned int n)
+{
+	unsigned int tid = threadIdx.x;
+	unsigned idx = blockIdx.x*blockDim.x + threadIdx.x;
+	// convert global data pointer to the local point of this block
+	int *idata = g_idata + blockIdx.x*blockDim.x;
+	if (idx > n)
+		return;
+	//in-place reduction in global memory
+	for (int stride = 1; stride < blockDim.x; stride *= 2)
+	{
+		//convert tid into local array index
+		int index = 2 * stride *tid;
+		if (index < blockDim.x)
+		{
+			idata[index] += idata[index + stride];
+		}
+		__syncthreads();
+	}
+	//write result for this block to global men
+	if (tid == 0)
+		g_odata[blockIdx.x] = idata[0];
+}
+```
+这样每次分支都有大部分线程在跑。
+
+## 循环展开

@@ -1334,4 +1334,272 @@ fn returns_summarizable() -> impl Summary {}
 ```
 这样告诉调用者返回了一个有`Summary`特征的结构体。这种用法当返回值的类型特别复杂的时候很好用。但是不能用分支控制返回两种类型，会报错。
 
+### 特征对象
+上一节中返回特征时不能通过分支返回两种变量，这时需要一个统一的类型来表示全部这些变量：
+```Rust
+fn draw1(x: Box<dyn Draw>) {}
+
+fn draw2(x: &dyn Draw) {}
+```
+可以使用`Box()`或`&`来表示特征对象。有点类似于c++中的多态指针，指向的类型都实现了一定的方法。
+
+特征对象的使用有限制，必须所有特征中的方法满足：
+* 返回类型不是`self`
+* 方法没有任何泛型参数
+
+才可以对特征声明特征对象
+
+### 进一步深入特征
+#### 关联类型
+关联类型是在特征中定义的类型：
+```Rust
+pub trait Iteration{
+    type Item
+    pub fn next(&mut self) -> Option<Self::Item>;
+}
+```
+是在实现特征的时候同时要实现的类型声明：
+```Rust
+impl Iteration for Counter{
+    type Item = u32;
+    pub fn next(&mut self) -> Option<Self::Item>{
+    //实现
+    }
+}
+```
+这样的实现与声明泛型没什么区别，但是会增加可读性，不再需要在定义函数/结构体的时候再进行泛型声明。
+
+#### 默认泛型类型参数
+可以为泛型参数设定默认值，比如`std::ops::Add`：
+```Rust
+trait Add<RHS = Self>{
+    type Output;
+    fn add(&self, other:RHS) -> Self::Output{
+    //实现
+    }
+}
+```
+这样加法右值默认和左值类型相同。
+
+#### 调用同名方法
+当特征与类型本身的方法之间名字发生冲突的时候，直接调用方法会首先执行类型本身的方法。想要执行特定特征的方法需要：
+```Rust
+    Wizard::fly(&person); // 调用Wizard特征上的方法
+    person.fly(); //调用类型方法
+```
+如果特征中定义了关联方法就需要完全限定语法：
+```Rust
+<Dog as Animal>::name()
+```
+这种方法可以用在任何函数的调用上，但一般没有冲突的时候不需要写这么麻烦。
+
+#### 特征定义中的特征约束
+有的特征实现需要依赖于另一个特征，就需要对特征进行特征约束：
+```Rust
+use std::fmt::Display;
+
+trait OutlinePrint: Display {
+    fn outline_print(&self) {
+        let output = self.to_string();
+        //实现
+    }
+}
+```
+如果实现特征的时候类型没有实现`Display`就会报错。
+
+#### 在外部类型上实现外部特征（newtype）
+因为孤儿原则无法对两个都不在本地定义的特征、类型实现，但是可以通过声明新类型来实现，且这种实现是没有性能损耗的：
+```Rust
+use std::fmt;
+
+struct Wrapper(Vec<String>);
+
+impl fmt::Display for Wrapper {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{}]", self.0.join(", "))
+    }
+}
+```
+通过声明一个元组结构体来为`Vec`来实现`Display`。但这样每次使用`Wrapper`的时候都需要先用`Wrapper.0`提取数据。可以通过实现`Deref`特征来简化：
+```Rust
+impl Deref for Wrapper{
+    type Target = Vec<String>;
+    fn deref(&mut self) -> &mut Target{
+        Wrapper.0
+    }
+}
+```
+在使用时使用`*Wrapper`解引用。
+
+## 集合类型
+### 动态数组Vector
+
+#### 创建动态数组
+使用`Vec::new()`创建数组，可以显式声明类型也可以在赋值的时候由编译器给出：
+```Rust
+let v1 = Vec::<i32>::new();
+
+let mut v2 = Vec::new();
+v2.push(1);
+```
+两种都可以。如果预先知道储存元素的个数可以使用`Vec::with_capacity(capacity)`创建动态数组，可以提升性能。使用`vec![]`声明：
+```Rust
+let v = vec![1, 2, 3];
+```
+#### 更新数组
+使用`push()`方法在数组后添加值，只有`mut`之后才能修改。
+#### 生命周期
+在`Vectoe`超过生命周期之后其中的值也会被删除。
+
+#### 读取数组
+可以通过下标和`get()`函数来读取数组，其中`get()`返回的是一个`Option`类型，需要额外的解构：
+```Rust
+let v = vec![1, 2, 3, 4, 5];
+let v3 = &v[2];
+let v4 = v.get(3); //返回Option
+```
+使用`get()`可以有效预防数组越界。
+
+#### 迭代遍历
+使用迭代器访问vec：
+```Rust
+let mut v = vec![1, 2, 3];
+for i in &mut v {
+    *i += 10
+}
+```
+#### 储存不同类型
+可以通过枚举类实现，构建枚举类组成的数组，也可以通过特征类型构建：
+```Rust
+enum IpAddr {
+    V4(String),
+    V6(String)
+}
+fn main() {
+    let v = vec![
+        IpAddr::V4("127.0.0.1".to_string()),
+        IpAddr::V6("::1".to_string())
+    ];
+...
+
+//特征类型
+trait Inside{}
+
+struct A;
+struct B;
+
+impl Inside for A {}
+impl Inside for B {}
+
+fn main() {
+    let a = A;
+    let b = B;
+    let c:Vec<Box<dyn Inside>> = vec![Box::new(a), Box::new(b)];
+}
+```
+#### 常用方法
+```Rust
+let v = Vec::from([1, 2, 3]);
+let v = Vec::with_capacity(10); //设定容量
+v.extend[1, 2, 3];   //附加
+v.reserve(100);     //调整容量
+v.shrink_to_fit()   //释放剩余容量
+v.is_empty()        //检查是否为空
+v.remove(1)         //删除返回索引处值
+v.pop()             //删除返回尾部元素
+v.clear()           //清空
+v.truncate(1)       //截断到指定长度
+v.retain(|x| x>0)   //保留满足条件元素
+//删除指定位置元素，返回删除部分的迭代器。
+let mut m: Vec<_> = v.drain(1..=3).collect();    
+```
+
+#### Vector排序
+有`sort`, `sort_by`, `sort_unstable`, `sort_unstable_by`四种排序，带by的要传入一个闭包来实现排序流程。比如对于浮点数，由于只实现了`PartialOrd`所以不能直接用不带by的：
+```Rust
+vec.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());    
+```
+对于结构体也是如此，可以用闭包定义选取结构体中某个值作为排序。
+
+### kv储存HashMap
+#### 创建HashMap
+可以用`new`创建：
+```Rust
+use std::collections::HashMap;
+
+// 创建一个HashMap，用于存储宝石种类和对应的数量
+let mut my_gems = HashMap::new();
+
+// 将宝石类型和对应的数量写入表中
+my_gems.insert("红宝石", 1);
+```
+使用`HashMap`需要手动引入。还可以通过迭代器赋值。使用迭代器的时候要声明目标是`HashMap<_,_>`因为`Iter::collect`实现了许多种类型的赋值：
+```Rust
+fn main() {
+    use std::collections::HashMap;
+
+    let teams_list = vec![
+        ("中国队".to_string(), 100),
+        ("美国队".to_string(), 10),
+        ("日本队".to_string(), 50),
+    ];
+
+    let teams_map: HashMap<_,_> = teams_list.into_iter().collect();
+    
+    println!("{:?}",teams_map)
+}
+```
+创建`HashMap`时的所有权转移与其他变量一样，如果用引用来赋值要注意引用的生命周期。
+#### 查询HashMap
+可以通过`get()`方法查询值，也可以通过`for`遍历：
+```Rust
+let mut scores = HashMap::new();
+...
+let score = scores.get(team_name);  //返回Option(&i32)
+
+for (k, v) in &scores{
+    //遍历
+}
+```
+
+#### 更新HashMap
+更新值有几种情况：
+```Rust
+fn main() {
+    use std::collections::HashMap;
+
+    let mut scores = HashMap::new();
+
+    scores.insert("Blue", 10);
+
+    // 覆盖已有的值
+    let old = scores.insert("Blue", 20);
+    assert_eq!(old, Some(10));
+
+    // 查询新插入的值
+    let new = scores.get("Blue");
+    assert_eq!(new, Some(&20));
+
+    // 查询Yellow对应的值，若不存在则插入新值
+    let v = scores.entry("Yellow").or_insert(5);
+    assert_eq!(*v, 5); // 不存在，插入5
+
+    // 查询Yellow对应的值，若不存在则插入新值
+    let v = scores.entry("Yellow").or_insert(50);
+    assert_eq!(*v, 5); // 已经存在，因此50没有插入
+}
+```
+#### 哈希函数
+可以在[crates.io](https://crates.io/)中找到相关哈希函数库并用在构造哈希表中：
+```Rust
+use std::hash::BuildHasherDefault;
+use std::collections::HashMap;
+// 引入第三方的哈希函数
+use twox_hash::XxHash64;
+
+// 指定HashMap使用第三方的哈希函数XxHash64
+let mut hash: HashMap<_, _, BuildHasherDefault<XxHash64>> = Default::default();
+hash.insert(42, "the answer");
+```
+
 
