@@ -1602,4 +1602,199 @@ let mut hash: HashMap<_, _, BuildHasherDefault<XxHash64>> = Default::default();
 hash.insert(42, "the answer");
 ```
 
+## 认识声明周期
+### 借用检查
+Rust会检查代码中借用的生命周期是否安全比如：
+```Rust
+{
+    let r;                // ---------+-- 'a
+                          //          |
+    {                     //          |
+        let x = 5;        // -+-- 'b  |
+        r = &x;           //  |       |
+    }                     // -+       |
+                          //          |
+    println!("r: {}", r); //          |
+}                         // ---------+
+```
+这段代码被借用的变量生命周期比借用者短，就会报错。
+
+### 生命周期标注语法
+在有些情况编译器无法确定引用生命周期的具体大小，则需要声明生命周期：
+```Rust
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+
+fn main() {
+    let string1 = String::from("long string is long");
+
+    {
+        let string2 = String::from("xyz");
+        let result = longest(string1.as_str(), string2.as_str());
+        println!("The longest string is {}", result);
+    }
+}
+```
+通过这种语法统一输出引用的生命周期为两个输入引用生命周期中较小的那么，保证输出生命周期内不会悬空指针。在上例中如果在花括号外使用result就会报错，因为result引用生命周期与string2相同。
+
+#### 深入思考生命周期标注
+如果输出为引用类型那它的生命周期只能来自参数引用或函数内变量引用。由于函数内的变量在执行完后生命周期结束就一定无法编译。所以如果想返回函数内变量就要移交变量所有权。
+
+### 结构体中的生命周期
+对结构体标注生命周期，让结构体的生命周期不超过其中字段的生命周期：
+```Rust
+struct ImportantExcerpt<'a> {
+    part: &'a str,
+}
+```
+### 生命周期消除
+有些场景不需要生命周期消除：
+* 每个输入引用都获得单独的生命周期
+* 如果只有一个输入生命周期，那么会赋给所有输出生命周期
+* 如果又多个输入生命周期但是其中一个是`self`的引用那么输出的生命周期与`&self`相同。
+
+当编译器发现没有标注生命周期的时候会检查三条并看看是否符合标准。
+
+### 方法中的生命周期
+方法的生命周期类似：
+```Rust
+struct ImportantExcerpt<'a> {
+    part: &'a str,
+}
+
+impl<'a> ImportantExcerpt<'a> {
+    fn level(&self) -> i32 {
+        3
+    }
+}
+```
+如果要在函数里声明里增加第二个生命周期可以使用：
+```Rust
+impl<'a> ImportantExcerpt<'a> {
+    fn announce_and_return_part<'b>(&'a self, announcement: &'b str) -> &'b str
+    where
+        'a: 'b,
+    {
+        println!("Attention please: {}", announcement);
+        self.part
+    }
+}
+```
+`'a: 'b`表示`'a`一定比`'b`活得久
+
+### 静态生命周期
+可以用`'static'`生命周期来声明那些与程序生命周期相同的变量。
+
+## 返回值和错误处理
+
+### panic与不可恢复错误
+有些错误发生时可能是不可恢复的，比如程序在开机时读取文件操作。这时可以调用`panic`来解决。
+
+`panic`会被被动调用，当运行时遇到问题，比如数组越界。也可以在程序中由开发者调用：
+
+```Rust
+fn main() {
+    panic!("crash and burn");
+}
+```
+这时程序会抛出`panic`内容并给出在程序中的具体行列。可以通过修改命令来获得详细的错误信息：
+* linux：`RUST_BACKTRACE=1 cargo run`
+* Windows：`$env:RUST_BACKTRACE=1 ; cargo run`
+
+在运行上面命令之后会进行栈展开，即从panic位置回溯到发生错误的地方，这样就可以逐步定位问题所在。`panic`有两种终止模式，展开和直接终止。一般来说使用展开，当担心生成的可执行文件大小的时候可以使用直接终止：
+```Rust
+[profile.release]
+panic = 'abort'
+```
+这样`release`版本就会直接终止（测试了一下简单的数组溢出，确实小了一点）当`panic`的线程不是主线程的时候只会退出子线程不会退出主线程。
+
+### 处理result
+一个小例子。在处理`Result`的时候：
+```Rust
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+```
+使用`unwrap`或者`expect`处理，前者在`Err`时直接`panic`，后者会接受一个字符串并同时输出。当知道程序一定会正常运行的时候可以直接用`unwrap`提取值，代码会很简洁。`Result`同时也可以处理一些可恢复的错误，比如用户输入错误这种不起眼的问题。这时候不需要`panic`或者根本不能`panic`：
+```Rust
+use std::fs::File;
+use std::io::ErrorKind;
+
+fn main() {
+    let f = File::open("hello.txt");
+
+    let f = match f {
+        Ok(file) => file,
+        Err(error) => match error.kind() {
+            ErrorKind::NotFound => match File::create("hello.txt") {
+                Ok(fc) => fc,
+                Err(e) => panic!("Problem creating the file: {:?}", e),
+            },
+            other_error => panic!("Problem opening the file: {:?}", other_error),
+        },
+    };
+}
+```
+比如一个文件错误处理，可以分别处理不同的错误。
+
+### 传播错误
+一个读取文件的错误处理：
+```Rust
+use std::fs::File;
+use std::io::{self, Read};
+
+fn read_username_from_file() -> Result<String, io::Error> {
+    // 打开文件，f是`Result<文件句柄,io::Error>`
+    let f = File::open("hello.txt");
+
+    let mut f = match f {
+        // 打开文件成功，将file句柄赋值给f
+        Ok(file) => file,
+        // 打开文件失败，将错误返回(向上传播)
+        Err(e) => return Err(e),
+    };
+    // 创建动态字符串s
+    let mut s = String::new();
+    // 从f文件句柄读取数据并写入s中
+    match f.read_to_string(&mut s) {
+        // 读取成功，返回Ok封装的字符串
+        Ok(_) => Ok(s),
+        // 将错误向上传播
+        Err(e) => Err(e),
+    }
+}
+```
+在嵌套调用函数的代码中将错误层层上报可以让代码更强大，可以用`？`宏来简化代码：
+```Rust
+use std::fs::File;
+use std::io::{self, Read};
+
+fn read_username_from_file() -> Result<String, io::Error> {
+    let f = File::open("hello.txt")?;
+
+    let mut s = String::new();
+
+    f.read_to_string(&mut s)?;
+    OK(s)
+}
+```
+`?`宏的作用就是在正确的时候解包，错误的时候直接返回错误。就不用模式匹配了。它还可以嵌套使用：
+```Rust
+    File::open("hello.txt")?.read_to_string(&mut s)?;
+```
+要注意的是`?`返回一个解包之后的值，所以需要用一个变量来承载正确的值，否则它不是`Result`或`Option`形式会报错。
+
+## 包和模块
+Rust的项目管理结构：
+* **项目(Package)**：可以用来构建、测试和分享包
+* **工作空间(WorkSpace)**：对于大型项目，可以进一步将多个包联合在一起，组织成工作空间
+* **包(Crate)**：一个由多个模块组成的树形结构，可以作为三方库进行分发，也可以生成可执行文件进行运行
+* **模块(Module)**：可以一个文件多个模块，也可以一个文件一个模块，模块可以被认为是真实项目中的代码组织单元
+
 

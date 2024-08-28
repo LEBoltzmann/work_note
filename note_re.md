@@ -5,6 +5,6 @@
 
 [以太坊](./learn/ethereum/a_ethereum_rm.md)目前包含以太坊、比特币
 
-[代码学习](./learn/Code)目前到Rust基础
+[代码学习](./learn/Code/a_Code_rm.md)目前到Rust基础
 
 [计算机](./learn/comp/a_comp_rm.md)目前有计算机操作系统

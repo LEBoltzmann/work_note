@@ -368,3 +368,226 @@ __global__ void reduceNeighboredLess(int * g_idata,int *g_odata,unsigned int n)
 这样每次分支都有大部分线程在跑。
 
 ## 循环展开
+当在CPU上写代码的时候展开循环没什么用因为编译器会优化，但是写cuda代码时会有比较大的提升。教程中在规约前先展开了循环，把2/4/8个块的数据加到一个块中，实验中能测试到明显的性能优化
+```c
+__global__ void reduceUnroll2(int * g_idata,int * g_odata,unsigned int n)
+{
+	//set thread ID
+	unsigned int tid = threadIdx.x;
+	unsigned int idx = blockDim.x*blockIdx.x*2+threadIdx.x;
+	//boundary check
+	if (tid >= n) return;
+	//convert global data pointer to the
+	int *idata = g_idata + blockIdx.x*blockDim.x*2;
+	if(idx+blockDim.x<n)
+	{
+		g_idata[idx]+=g_idata[idx+blockDim.x];
+
+	}
+	__syncthreads();
+	//in-place reduction in global memory
+	for (int stride = blockDim.x/2; stride>0 ; stride >>=1)
+	{
+		if (tid <stride)
+		{
+			idata[tid] += idata[tid + stride];
+		}
+		//synchronize within block
+		__syncthreads();
+	}
+	//write result for this block to global mem
+	if (tid == 0)
+		g_odata[blockIdx.x] = idata[0];
+
+}
+```
+就是`if`中的那段，4/8也是在`if`中再加几行。在程序最后，当归约到64个数值的时候后面每次进行规约都会多浪费一半的线程。所以也可以展开：
+```c
+if(tid<32)
+	{
+		volatile int *vmem = idata;
+		vmem[tid]+=vmem[tid+32];
+		vmem[tid]+=vmem[tid+16];
+		vmem[tid]+=vmem[tid+8];
+		vmem[tid]+=vmem[tid+4];
+		vmem[tid]+=vmem[tid+2];
+		vmem[tid]+=vmem[tid+1];
+
+	}
+```
+这样就让每个线程都展开了（~~这里有点小小疑惑，如果说上面的展开优化实际上是省略了块内同步，让不同的线程可以先充分的占用计算资源，那最后只剩一个线程束的情况下这么做真的有用吗？~~）
+
+这种计算不会造成线程之间数据的冲突因为每次同一个线程束执行的时候都先把数据传到寄存器之后行动，所以不会产生读写冲突。`volatile int`类型变量要把变量写会内存，这样每个操作时间之后都会储存数据，不会造成不同步。
+
+最后还可以把后面的所有的`for`循环里的语句全部展开：
+```c
+	if(blockDim.x>=1024 && tid <512)
+		idata[tid]+=idata[tid+512];
+	__syncthreads();
+	if(blockDim.x>=512 && tid <256)
+		idata[tid]+=idata[tid+256];
+	__syncthreads();
+	if(blockDim.x>=256 && tid <128)
+		idata[tid]+=idata[tid+128];
+	__syncthreads();
+	if(blockDim.x>=128 && tid <64)
+		idata[tid]+=idata[tid+64];
+	__syncthreads();
+```
+**小结一下：** 这里主要是减少线程同步的使用，只要有线程同步就可能造成可以填充到cuda核心里的线程束变少，利用率减少。最开始那段可以不用同步是因为每个线程计算的数据块确定下来了，最后可以不同步是因为所有线程在一个线程束里。至于中间部分就是展开for循环会带来多少性能优化，在博客里这部分性能优化是比较少的。所以我暂时认为主要性能优化的点是减少线程同步(增加活跃线程束)和增加线程内的任务(线程束实际上减少)之间的trade off。
+
+**更新：** 我测试了还是使用`for`循环在最后32个线程（一个线程束）上，性能并没有什么差距（与其它两个偶尔高偶尔低）
+
+## 动态并行
+动态并行类似递归调用函数，特别的是它的线程同步问题。对于一个父块以及它调用的子块，它的所有子块是隐性同步的，也就是子块全部跑完才会回到父块。
+
+# 全局内存
+
+## 内存模型概述
+内存储存存在两种局域性：
+* **时间局域行：** 一块内存被访问后一段时间内可能还被访问。
+* **空间局域性：** 一块内存附近的内存也可能被访问
+
+基于这样的特性现代内存发展为层次的结构：
+
+<img src="./img/cuda11.png" alt="" width="" height="" />
+
+CPU和GPU的主存都采用DRAM动态随机存取储存器。而低延迟的比如一级缓存就需要SRAM动态随机存取储存器。当数据被频繁使用的时候就会存向更高一级储存。
+## cuda内存模型
+对于cuda的内存可以分为两大类：可编程内存和不可编程内存。可编程内存的行为可以通过程序操纵而不可编程内存的行为在出厂的时候就已经确定了。cuda的内存层级有：
+* 寄存器
+* 共享内存
+* 本地内存
+* 常量内存
+* 纹理内存
+* 全局内存
+
+各种内存的可见行可以见：
+
+<img src="./img/cuda12.png" alt="" width="" height="" />
+
+### 寄存器
+寄存器是访问最快的数据，在CPU中寄存器数据在使用时才从下一级储存拷贝，而GPU每个线程所拥有的寄存器是不变的，寄存器变量的生命周期与核函数生命周期一致。每个线程寄存器的数量有上限，一个SM上寄存器数量也有上限，多的变量会储存在内存里很影响效率。所以要尽量避免寄存器溢出：
+
+```c
+__global__ void
+__launch_bounds__(maxThreadperBlock, minBlocksperMultiprocessor)
+kernel(...){
+    //code
+}
+```
+其中两个参数分别为每个块最大线程和每个SM最小常驻内存块。也可以在编译时加入：
+```c
+-maxrregcount=32
+```
+来限制每个线程分配的寄存器数量。
+
+### 本地内存
+对于线程的私有变量：
+* 使用未知索引引用的本地数组
+* 可能会占用大量寄存器空间的较大本地数组或者结构体
+* 任何不满足核函数寄存器限定条件的变量。
+
+本地内存实际上也与全局内存储存在同一区域，访问满延迟高。
+
+### 共享内存
+使用修饰符`__shared__`修饰。共享内存也是片上内存，存取比较快。共享内存生命周期与线程块一致。声明共享内存的时候不能太多，SM上内存有限太多会导致同时启动的线程块少。SM的一级缓存和共享内存共享一个片上内存，可以通过函数静态设置内存划分：
+```c
+cudaError_t cudaFuncSetCacheConfig(const void *func, enum cudaFuncCache);
+```
+### 常量内存
+常量内存用`__constant__`声明，主机端代码可以初始化常量内存。使用函数：
+```c
+cudaError_t cudaMemcpyToSymbol(const T &symbol, const void *src, size_t count);
+```
+对于所有设备只可以声明64k的常量内存。如果一个线程束内的所有线程都从一个地址读取数据的话常量内存表现会比较好，因为它的机制是一次读取会广播给线程束内的所有线程。
+
+### 纹理内存
+一块只读内存。纹理内存可以在读取的同时进行浮点插入，所以一些滤波程序可以用硬件操作替代程序操作。
+
+### 全局内存
+用`__device__`声明，与应用程序生命周期相同。由于全局内存是对其访问，只能以一定数量的字节同时读取，就会可能造成无关数据被读取，吞吐量下降。
+### GPU缓存
+GPU缓存分为：
+* 一级缓存，一个SM一个
+* 二级缓存，所有SM共享
+* 只读常量缓存和只读纹理缓存
+
+这些缓存都是不可编辑的，只能规定在读操作的时候是使用同时一级二级缓存还是只使用二级缓存。
+### 静态全局内存
+可以静态分配内存：
+```c
+...
+__device__ float devData;
+...
+float value = 3.14;
+cudaMemcpyToSymbol(devData, &value, sizeof(float));
+```
+可以通过方法获得设备变量地址：
+```c
+float *dprt = NULL;
+cudaGetSymbolAddress((void**) &dptr, devData);
+```
+
+## 内存管理
+详细介绍分配传输等内存管理
+### 固定内存
+因为GPU从自己的内存中读取数据是很快的，远超CPU的读取速度和从CPU中以总线连接的读取速度，所以要尽量避免运行时从主机获得数据。因为在主机中分配内存是分页的，并且操作系统可能随时在储存中切换页，所以cuda在传输过程中需要提前锁定页之后传输，因为页切换对设备来说是不可理解的。在实际操作中可以在主机中分配固定内存：
+```c
+cudaError_t cudaMallocHost(void ** devPtr, size_t count)
+cudaError_t cudaFreeHost(void * ptr)
+```
+来分配释放内存。固定内存分配释放时间会比较长但是传输时间短，如果传输大规模数据的时候可以考虑使用固定内存。
+
+### 零拷贝内存
+可以声明主机和设备都可以访问的内存：
+```c
+cudaError_t cudaHostAlloc(void ** pHost, size_t count, unsigned int flags)
+```
+flags的取值：
+* `cudaHostAllocDefalt`：分配分页内存。
+* `cudaHostAllocPortable`：可移植内存，可以在cuda上下文访问
+* `cudaHostAllocWriteCombbined`：在某些设备上可以提高主机到设备传输速度
+* `cudaHostAllocMapped`：零拷贝内存
+
+为了能使设备访问零拷贝内存需要：
+```c
+cudaError_t cudaHostGetDevicePointer(void ** pDevice, void * pHost, unsigned flags)
+```
+这个flags必须取0 。零拷贝内存读写很慢，尤其是频繁读写就不如使用全局内存。
+
+### 统一虚拟寻址
+cuda2.0后把CPU、GPU内存放到同一块虚拟内存上访问，如果是零拷贝内存就可以直接通过指针访问而不需要上面的拷贝。
+
+### 统一内存寻址
+在统一内存中创建一个托管内存池，其中的内存可以由一个统一指针访问。使用`__managed__`静态创建或者：
+```c
+cudaError_t cudaMallocManaged(void ** devPtr, size_t size, unsigned int flags=0)
+```
+来分配托管内存池变量。
+
+## 内存访问模式
+每次内存访问都是以线程束的形式进行。每次读取都是32/128的粒度进行读取，所以说一个线程束的内存读取满足连续性的话就不需要多次请求内存事务。这种优化叫做合并。另外如果某次内存事务读取的第一个地址是32的倍数的话也会增加访问速度，叫对齐。
+
+### 只读缓存
+可以设定从全局内存中加载数据为只读缓存，它的粒度为32对读取分散数据比较实用。可以声明：
+```c
+out[idx] = __ldg(&in[idx]);
+//使用关键字限制指针
+__global__ void kernel(const int * const __restrict__ input, ...)
+```
+
+### 全局内存写入
+写入不过一级缓存，粒度是32，每次内存事务分为一段两端四段。其余与读取类似。
+
+### 结构体数组和数组结构体
+因为访问数组结构体的时候访问数组数据是连续的，所以最好使用数组结构体。
+
+### 展开读写
+可以通过前面的展开技术来增加并行性。
+
+## 核函数带宽
+一级缓存的作用除了从全局内存读取数据外，也不会立即覆盖没有使用的数据。在下一次读取的时候如果在一级缓存中命中就不需要重新读取全局内存。于是优化的时候可以通过交叉读取增加读取吞吐量，同时控制在一级缓存不会覆盖的情况下，反而会增加运行速度，因为读取吞吐量增加了。
+
+同时DRAM的储存是分区的，每256字节一个分区，每次只允许一个访问。如果高频地访问同一个区可能会导致拥挤。所以要通过打乱线程块顺序来避免。
+
